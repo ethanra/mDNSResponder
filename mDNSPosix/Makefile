@@ -54,17 +54,18 @@ COREDIR = ../mDNSCore
 SHAREDDIR ?= ../mDNSShared
 JDK = /usr/jdk
 
-CC = @cc
+CC = @gcc
 BISON = @bison
 FLEX = @flex
 ST = @strip
-LD = ld -shared
+LD = ld
+SOOPTS =  -shared
 CP = cp
 RM = rm
 LN = ln -s -f
-CFLAGS_COMMON = -I$(COREDIR) -I$(SHAREDDIR) -I$(OBJDIR) -fwrapv -W -Wall -DPID_FILE=\"/var/run/mdnsd.pid\" -DMDNS_UDS_SERVERPATH=\"/var/run/mdnsd\"
+CFLAGS_COMMON = -I$(COREDIR) -I$(SHAREDDIR) -I$(OBJDIR) -fwrapv -W -Wall -DPID_FILE=\"/var/run/mdnsd.pid\" -DMDNS_UDS_SERVERPATH=\"/var/run/mdnsd\" $(CFLAGS_EXTRA)
 CFLAGS_PTHREAD =
-LINKOPTS =
+LINKOPTS = $(LINKOPTS_EXTRA)
 LINKOPTS_PTHREAD = -lpthread
 LDSUFFIX = so
 JAVACFLAGS_OS = -fPIC -shared -ldns_sd
@@ -92,7 +93,7 @@ CFLAGS_DEBUG = -O0 -DMDNS_DEBUGMSGS=0
 CFLAGS_OS = -DNOT_HAVE_DAEMON -DNOT_HAVE_SA_LEN -DNOT_HAVE_SOCKLEN_T -DNOT_HAVE_IF_NAMETOINDEX \
 	 -DLOG_PERROR=0 -D_XPG4_2 -D__EXTENSIONS__ -DHAVE_BROKEN_RECVIF_NAME -DTARGET_OS_SOLARIS
 CC = gcc
-LD = gcc -shared
+LD = gcc
 LINKOPTS = -lsocket -lnsl -lresolv
 JAVACFLAGS_OS += -I$(JDK)/include/solaris
 ifneq ($(DEBUG),1)
@@ -102,7 +103,7 @@ else
 
 # any target that contains the string "linux"
 ifeq ($(findstring linux,$(os)),linux)
-CFLAGS_OS = -D_GNU_SOURCE -DHAVE_IPV6 -DNOT_HAVE_SA_LEN -DUSES_NETLINK -DHAVE_LINUX -DTARGET_OS_LINUX -fno-strict-aliasing
+CFLAGS_OS = -DNOT_HAVE_SA_LEN -DUSES_NETLINK -DHAVE_LINUX -DTARGET_OS_LINUX
 LD = $(CC) -shared
 FLEXFLAGS_OS = -l
 JAVACFLAGS_OS += -I$(JDK)/include/linux
@@ -123,7 +124,7 @@ ifeq ($(os),freebsd)
 # If not already defined, set LOCALBASE to /usr/local
 LOCALBASE?=/usr/local
 INSTBASE=$(LOCALBASE)
-CFLAGS_OS = -DHAVE_IPV6
+CFLAGS_OS =
 # FreeBSD 4 requires threaded code to be compiled and linked using the "-pthread" option,
 # and requires that the "-lpthread" link option NOT be used
 # This appies only to FreeBSD -- "man cc" on FreeBSD says:
@@ -257,7 +258,7 @@ libdns_sd: setup $(BUILDDIR)/libdns_sd.$(LDSUFFIX)
 CLIENTLIBOBJS = $(OBJDIR)/dnssd_clientlib.c.so.o $(OBJDIR)/dnssd_clientstub.c.so.o $(OBJDIR)/dnssd_ipc.c.so.o
 
 $(BUILDDIR)/libdns_sd.$(LDSUFFIX): $(CLIENTLIBOBJS)
-	@$(LD) $(LINKOPTS) -o $@ $+
+	@$(LD) $(SOOPTS) $(LINKOPTS) -o $@ $+
 	@$(STRIP) $@
 
 Clients: setup libdns_sd ../Clients/build/dns-sd
@@ -271,7 +272,7 @@ nss_mdns: setup $(BUILDDIR)/$(NSSLIBFILE)
 	@echo "Name Service Switch module done"
 
 $(BUILDDIR)/$(NSSLIBFILE): $(CLIENTLIBOBJS) $(OBJDIR)/nss_mdns.c.so.o
-	@$(LD) $(LINKOPTS) -o $@ $+
+	@$(LD) $(SOOPTS) $(LINKOPTS) -o $@ $+
 	@$(STRIP) $@
 
 #############################################################################
@@ -292,7 +293,7 @@ InstalledManPages: $(MANPATH)/man8/mdnsd.8
 InstalledClients: $(INSTBASE)/bin/dns-sd
 	@echo $+ " installed"
 
-InstalledNSS: $(NSSINSTPATH)/$(NSSLINKNAME) /etc/nss_mdns.conf $(MANPATH)/man5/nss_mdns.conf.5 $(MANPATH)/man8/libnss_mdns.8
+InstalledNSS: $(NSSINSTPATH)/$(NSSLINKNAME) $(ETCBASE)/nss_mdns.conf $(MANPATH)/man5/nss_mdns.conf.5 $(MANPATH)/man8/libnss_mdns.8
 	@echo $+ " installed"
 
 # Note: If daemon already installed, we make sure it's stopped before overwriting it
@@ -347,19 +348,21 @@ $(INSTBASE)/bin/dns-sd: ../Clients/build/dns-sd
 
 $(NSSINSTPATH)/$(NSSLINKNAME): $(NSSINSTPATH)/$(NSSLIBFILE)
 	$(LN) $< $@
-	ldconfig
+	ifdef LDCONFIG
+		$(LDCONFIG)
+	endif
 
 $(NSSINSTPATH)/$(NSSLIBFILE): $(BUILDDIR)/$(NSSLIBFILE)
 	$(CP) $< $@
 	chmod 444 $@
 
-/etc/nss_mdns.conf: nss_mdns.conf
+$(ETCBASE)/nss_mdns.conf: nss_mdns.conf
 	$(CP) $< $@
 	chmod 444 $@
 	# Check the nsswitch.conf file.
 	# If 'mdns' does not already appear on the "hosts:" line, then add it right before 'dns'
-	cp -f /etc/nsswitch.conf /etc/nsswitch.conf.pre-mdns
-	sed -e '/mdns/!s/^\(hosts:.*\)dns\(.*\)/\1mdns dns\2/' /etc/nsswitch.conf.pre-mdns > /etc/nsswitch.conf
+	-[ -f $(ETCBASE)/nsswitch.conf ] && cp -f $(ETCBASE)/nsswitch.conf $(ETCBASE)/nsswitch.conf.pre-mdns
+	-[ -f $(ETCBASE)/nsswitch.conf ] && sed -e '/mdns/!s/^\(hosts:.*\)dns\(.*\)/\1mdns dns\2/' $(ETCBASE)/nsswitch.conf.pre-mdns > $(ETCBASE)/nsswitch.conf
 
 #############################################################################
 
